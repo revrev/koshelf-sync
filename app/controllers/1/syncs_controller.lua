@@ -1,5 +1,6 @@
 local Redis = require "db.redis"
 local Audiobookshelf = require "lib.audiobookshelf"
+local Logger = require "lib.logger"
 
 local SyncsController = {
     user_key = "user:%s:key",
@@ -34,6 +35,7 @@ end
 function SyncsController:getRedis()
     local redis = Redis:new()
     if not redis then
+        Logger.app("redis.unavailable", nil, "ERROR")
         self:raise_error(self.error_no_redis)
     else
         return redis
@@ -47,6 +49,9 @@ function SyncsController:authorize()
     if is_valid_field(auth_key) and is_valid_key_field(auth_user) then
         local key, err = redis:get(string.format(self.user_key, auth_user))
         if auth_key == key then
+            if ngx and ngx.ctx then
+                ngx.ctx.authenticated_user = auth_user
+            end
             return auth_user
         end
     end
@@ -54,8 +59,10 @@ end
 
 function SyncsController:auth_user()
     if self:authorize() then
+        Logger.app("auth.success")
         return 200, { authorized = "OK" }
     else
+        Logger.app("auth.failure", nil, "WARN")
         self:raise_error(self.error_unauthorized_user)
     end
 end
@@ -73,13 +80,17 @@ function SyncsController:create_user()
     if user == null then
         ok, err = redis:set(user_key, self.request.body.password)
         if not ok then
+            Logger.app("user.create_failed", { username = self.request.body.username, error = err }, "ERROR")
             self:raise_error(self.error_internal)
         else
+            Logger.app("user.created", { username = self.request.body.username })
             return 201, { username = self.request.body.username }
         end
     elseif user then
+        Logger.app("user.create_conflict", { username = self.request.body.username }, "WARN")
         self:raise_error(self.error_user_exists)
     else
+        Logger.app("user.create_failed", { username = self.request.body.username, error = err }, "ERROR")
         self:raise_error(self.error_internal)
     end
 end
@@ -135,8 +146,17 @@ function SyncsController:get_progress()
             res.progress = ok.progress or res.progress
             res.device = ok.device or res.device
             res.timestamp = ok.timestamp or res.timestamp
+            Logger.app("audiobookshelf.pull_success", {
+                username = username,
+                document = doc,
+                remote_timestamp = ok.timestamp,
+            })
         elseif err then
-            ngx.log(ngx.ERR, "Audiobookshelf pull failed: ", err)
+            Logger.app("audiobookshelf.pull_failed", {
+                username = username,
+                document = doc,
+                error = err,
+            }, "ERROR")
         end
     end
 
@@ -144,6 +164,11 @@ function SyncsController:get_progress()
         -- We do not want to have an almost empty table with document field only.
         res.document = doc
     end
+    Logger.app("progress.fetch", {
+        username = username,
+        document = doc,
+        has_progress = next(res) ~= nil,
+    })
 
     return 200, res
 end
@@ -179,17 +204,33 @@ function SyncsController:update_progress()
             self:raise_error(self.error_internal)
         end
         if Audiobookshelf.is_enabled() then
-            local _, sync_err = Audiobookshelf.push_progress({
+            local push_ok, sync_err = Audiobookshelf.push_progress({
                 username = username,
                 document = doc,
                 percentage = percentage,
                 progress = progress,
                 timestamp = timestamp,
             })
-            if sync_err then
-                ngx.log(ngx.ERR, "Audiobookshelf push failed: ", sync_err)
+            if push_ok then
+                Logger.app("audiobookshelf.push_success", {
+                    username = username,
+                    document = doc,
+                    timestamp = timestamp,
+                })
+            elseif sync_err then
+                Logger.app("audiobookshelf.push_failed", {
+                    username = username,
+                    document = doc,
+                    error = sync_err,
+                }, "ERROR")
             end
         end
+        Logger.app("progress.update", {
+            username = username,
+            document = doc,
+            percentage = percentage,
+            device = device,
+        })
         return 200, {
             document = doc,
             timestamp = timestamp,

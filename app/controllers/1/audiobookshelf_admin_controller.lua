@@ -2,6 +2,7 @@ local cjson = require "cjson.safe"
 local Redis = require "db.redis"
 local Audiobookshelf = require "lib.audiobookshelf"
 local AudiobookshelfConfig = require "lib.audiobookshelf_config"
+local Logger = require "lib.logger"
 
 local AudiobookshelfAdminController = {
     user_key = "user:%s:key",
@@ -19,6 +20,17 @@ end
 
 local function is_valid_key_field(field)
     return is_valid_field(field) and not string.find(field, ":")
+end
+
+local function table_size(value)
+    if type(value) ~= "table" then
+        return 0
+    end
+    local count = 0
+    for _ in pairs(value) do
+        count = count + 1
+    end
+    return count
 end
 
 local function parse_number(value)
@@ -71,7 +83,11 @@ end
 local function ensure_authorized(self)
     local username = self:authorize()
     if not username then
+        Logger.gui("auth.failed", { reason = "invalid credentials" }, "WARN")
         self:raise_error(self.error_unauthorized_user)
+    end
+    if ngx and ngx.ctx then
+        ngx.ctx.authenticated_user = username
     end
     return username
 end
@@ -96,9 +112,13 @@ local function decode_optional_json(value)
 end
 
 function AudiobookshelfAdminController:get_config()
-    ensure_authorized(self)
+    local username = ensure_authorized(self)
     local config = select(1, AudiobookshelfConfig.load())
     local enabled = Audiobookshelf.is_enabled()
+    Logger.gui("config.fetch", {
+        username = username,
+        enabled = enabled,
+    })
     return 200, {
         config = config,
         audiobookshelf = {
@@ -127,7 +147,7 @@ local function merge_document_map(base_map, updates)
 end
 
 function AudiobookshelfAdminController:update_config()
-    ensure_authorized(self)
+    local username = ensure_authorized(self)
     local body = self.request.body or {}
     if type(body) ~= "table" then
         self:raise_error(self.error_invalid_fields)
@@ -144,9 +164,27 @@ function AudiobookshelfAdminController:update_config()
     end
     local updated, err = AudiobookshelfConfig.save(body)
     if not updated then
+        Logger.gui("config.update_failed", {
+            username = username,
+            error = err,
+        }, "ERROR")
         return 200, { error = err or "Failed to update configuration" }
     end
     Audiobookshelf.invalidate_cache()
+    Logger.gui("config.updated", {
+        username = username,
+        changed = {
+            base_url = body.base_url ~= nil,
+            api_key = body.api_key ~= nil,
+            user_id = body.user_id ~= nil,
+            user_token = body.user_token ~= nil,
+            device_name = body.device_name ~= nil,
+            http_timeout = body.http_timeout ~= nil,
+            user_map_entries = table_size(body.user_map),
+            document_map_entries = table_size(body.document_map),
+            document_map_patch = table_size(body.document_map_patch),
+        },
+    })
     return 200, {
         config = updated,
         audiobookshelf = {
@@ -226,6 +264,7 @@ function AudiobookshelfAdminController:get_status()
     local config = select(1, AudiobookshelfConfig.load(redis)) or {}
     local docs, err = scan_documents(redis)
     if not docs then
+        Logger.gui("status.failed", { username = username, error = err }, "ERROR")
         return 200, { error = err or "Unable to list documents" }
     end
     local response_docs = {}
@@ -246,7 +285,7 @@ function AudiobookshelfAdminController:get_status()
         end
         table.insert(response_docs, row)
     end
-    return 200, {
+    local response = {
         documents = response_docs,
         config = config,
         audiobookshelf = {
@@ -255,15 +294,23 @@ function AudiobookshelfAdminController:get_status()
         },
         authorizedUser = username,
     }
+    Logger.gui("status.fetch", {
+        username = username,
+        documents = #response_docs,
+        audiobookshelf_enabled = response.audiobookshelf.enabled,
+    })
+    return 200, response
 end
 
 function AudiobookshelfAdminController:list_libraries()
     local username = ensure_authorized(self)
     local libraries, err = Audiobookshelf.fetch_libraries(username)
     if not libraries then
+        Logger.gui("libraries.fetch_failed", { username = username, error = err }, "ERROR")
         return 200, { error = err or "Failed to fetch libraries" }
     end
     local list = libraries.libraries or libraries
+    Logger.gui("libraries.fetch", { username = username, count = table_size(list) })
     return 200, { libraries = list }
 end
 
@@ -278,8 +325,21 @@ function AudiobookshelfAdminController:search_library()
     local limit = args.limit
     local results, err = Audiobookshelf.search_library(username, library_id, query, limit)
     if not results then
+        Logger.gui("library.search_failed", {
+            username = username,
+            library_id = library_id,
+            query = query,
+            error = err,
+        }, "ERROR")
         return 200, { error = err or "Search failed" }
     end
+    Logger.gui("library.search", {
+        username = username,
+        library_id = library_id,
+        query = query,
+        limit = limit,
+        results = table_size(results.items or results),
+    })
     return 200, { results = results }
 end
 
@@ -291,8 +351,10 @@ function AudiobookshelfAdminController:get_library_item()
     end
     local item, err = Audiobookshelf.fetch_library_item_for(username, library_item_id)
     if not item then
+        Logger.gui("library.item_failed", { username = username, library_item_id = library_item_id, error = err }, "ERROR")
         return 200, { error = err or "Unable to fetch item" }
     end
+    Logger.gui("library.item", { username = username, library_item_id = library_item_id })
     return 200, { item = item }
 end
 
