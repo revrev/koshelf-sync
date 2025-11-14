@@ -11,6 +11,99 @@ Users of koreader devices can register their devices to the synchronization
 server and use the sync service to keep all reading progress synchronized
 between devices.
 
+Audiobookshelf bridge
+---------------------
+
+The server can optionally mirror KOreader progress into
+[Audiobookshelf](https://www.audiobookshelf.org/) so that audiobook playback and
+ebook reading stay in sync. When enabled, every KOreader update is translated
+into an Audiobookshelf `PATCH /api/me/progress/:libraryItemId` call that:
+
+* Stores the raw KOreader payload in `mediaProgress.extraData.koreader.rawProgress` so the
+  original EPUB CFI and metadata are preserved.
+* Computes an approximate audiobook timestamp using the Audiobookshelf track and
+  chapter metadata and stores it as `currentTime`, allowing Audiobookshelf
+  clients to resume audio at the corresponding location.
+* Mirrors the KOreader percentage into `ebookProgress` and `ebookLocation` to
+  keep Audiobookshelf aware of the latest e-reading position.
+
+Whenever Audiobookshelf reports new playback progress, the sync server pulls the
+latest `mediaProgress` before serving a `GET /syncs/progress/:document` request.
+If the Audiobookshelf update is newer than the cached Redis entry, the KOreader
+progress is updated with the inferred ebook percentage and the augmented raw
+payload, allowing KOreader devices to follow along.
+
+Environment variables control the integration:
+
+| Variable | Description |
+| --- | --- |
+| `AUDIOBOOKSHELF_BASE_URL` | Base URL of the Audiobookshelf instance (e.g. `https://abs.local:13378`). |
+| `AUDIOBOOKSHELF_API_KEY` | Default API key or personal token when no per-user mapping is supplied. |
+| `AUDIOBOOKSHELF_USER_ID` | Optional user identifier to call user-scoped progress endpoints. |
+| `AUDIOBOOKSHELF_USER_TOKEN` | Optional value forwarded as `X-ABS-User-Token` for token-auth setups. |
+| `AUDIOBOOKSHELF_DEVICE_NAME` | Friendly device name to report when Audiobookshelf supplied the update. |
+| `AUDIOBOOKSHELF_USER_MAP` | JSON map of KOreader usernames to Audiobookshelf credentials (key, user id, device, token). |
+| `AUDIOBOOKSHELF_DOCUMENT_MAP` | JSON map of KOreader document ids to Audiobookshelf `libraryItemId`s. |
+| `AUDIOBOOKSHELF_HTTP_TIMEOUT` | Optional HTTP timeout (milliseconds) for Audiobookshelf requests. |
+
+Example `AUDIOBOOKSHELF_USER_MAP` value:
+
+```json
+{
+  "alice": {
+    "api_key": "abs-user-token",
+    "user_id": "8f4d8c7d-1f5a-4ab8-a971-2a58b1dd1f1e",
+    "device": "Audiobookshelf",
+    "user_token": "optional-session-token"
+  }
+}
+```
+
+Example `AUDIOBOOKSHELF_DOCUMENT_MAP` value:
+
+```json
+{
+  "0b229176d4e8db7f6d2b5a4952368d7a": "lib_itm_01h8cey9q7akb3g1cwvq4vqg5y"
+}
+```
+
+With the mapping in place the sync server automatically:
+
+1. Persists the raw KOreader payload in Audiobookshelf `extraData` so the bridge
+   can accurately translate ebook positions later.
+2. Translates KOreader percentages into Audiobookshelf audio timestamps using
+   the book's track and chapter metadata.
+3. Performs the inverse mapping when Audiobookshelf playback advances and
+   refreshes the Redis cache before serving KOreader clients.
+4. Leaves the existing Redis contract untouched, so KOreader continues to work
+   even if Audiobookshelf is offline.
+
+If you plan to react to Audiobookshelf updates in real time, subscribe to the
+`user_item_progress_updated` websocket channel exposed by Audiobookshelf. Doing
+so allows a downstream bridge (for example, a KOreader background task) to act
+as soon as Audiobookshelf pushes new progress instead of waiting for the next
+poll.
+
+Web administration UI
+---------------------
+
+A lightweight web console is available at `https://<host>:7200/audiobookshelf`.
+Sign in with an existing KoShelf username and password (the page hashes the
+password with MD5 before sending the request, matching the reader clients).
+Once authenticated you can:
+
+* Edit all Audiobookshelf-related environment overrides, including the base
+  URL, credentials, per-user map, and document map, without restarting the
+  service.
+* Inspect every document stored in Redis along with its local progress, the
+  currently linked Audiobookshelf item, and the remote progress pulled from the
+  Audiobookshelf API.
+* Search Audiobookshelf libraries directly from the UI and link or unlink items
+  to KoShelf document identifiers with a single click.
+* Monitor recent actions in a scrolling activity log so that configuration
+  changes are easy to audit.
+
+
 This project is licenced under Affero GPL v3, see the [COPYING](COPYING) file.
 
 Setup your own server
