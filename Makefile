@@ -1,9 +1,10 @@
 VERSION=2.0
+IMAGE=koshelf/koshelf-sync
 
 build:
-	docker build --rm=true --tag=koreader/kosync:$(VERSION) .
-	docker tag koreader/kosync:$(VERSION) koreader/kosync:latest
+	docker build --rm=true --tag=$(IMAGE):$(VERSION) .
+	docker tag $(IMAGE):$(VERSION) $(IMAGE):latest
 
 push:
-	docker push koreader/kosync:$(VERSION)
-	docker push koreader/kosync:latest
+	docker push $(IMAGE):$(VERSION)
+	docker push $(IMAGE):latest

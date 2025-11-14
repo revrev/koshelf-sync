@@ -1,13 +1,16 @@
-version: '3.3'
+version: '3.9'
 
 services:
-  kosync:
-    image: koreader/kosync:latest
-    container_name: kosync
+  koshelf-sync:
+    container_name: koshelf-sync
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: koshelf/koshelf-sync:latest
     ports:
-      - 7200:7200
+      - "7200:7200"
+    restart: unless-stopped
     volumes:
-      - ./logs/app:/app/koreader-sync-server/logs
+      - ./logs/app:/app/koshelf-sync/logs
       - ./logs/redis:/var/log/redis
       - ./data/redis:/var/lib/redis
-
