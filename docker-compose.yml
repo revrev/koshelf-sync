@@ -14,3 +14,5 @@ services:
       - ./logs/app:/app/koshelf-sync/logs
       - ./logs/redis:/var/log/redis
       - ./data/redis:/var/lib/redis
+    env_file:
+      - ./audiobookshelf.env
