@@ -1,4 +1,5 @@
 local Redis = require "db.redis"
+local Audiobookshelf = require "lib.audiobookshelf"
 
 local SyncsController = {
     user_key = "user:%s:key",
@@ -124,6 +125,21 @@ function SyncsController:get_progress()
         res.timestamp = tonumber(results[5])
     end
 
+    if Audiobookshelf.is_enabled() then
+        local ok, err = Audiobookshelf.merge_remote_progress(redis, key, res.timestamp, {
+            username = username,
+            document = doc,
+        })
+        if ok then
+            res.percentage = ok.percentage or res.percentage
+            res.progress = ok.progress or res.progress
+            res.device = ok.device or res.device
+            res.timestamp = ok.timestamp or res.timestamp
+        elseif err then
+            ngx.log(ngx.ERR, "Audiobookshelf pull failed: ", err)
+        end
+    end
+
     if next(res) then
         -- We do not want to have an almost empty table with document field only.
         res.document = doc
@@ -161,6 +177,18 @@ function SyncsController:update_progress()
         })
         if not ok then
             self:raise_error(self.error_internal)
+        end
+        if Audiobookshelf.is_enabled() then
+            local _, sync_err = Audiobookshelf.push_progress({
+                username = username,
+                document = doc,
+                percentage = percentage,
+                progress = progress,
+                timestamp = timestamp,
+            })
+            if sync_err then
+                ngx.log(ngx.ERR, "Audiobookshelf push failed: ", sync_err)
+            end
         end
         return 200, {
             document = doc,
