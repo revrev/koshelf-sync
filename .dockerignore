@@ -1,0 +1,12 @@
+.git
+.gitignore
+.npm-cache
+frontend/node_modules
+frontend/dist
+frontend/.vite
+frontend/.eslintcache
+node_modules
+dist
+.DS_Store
+logs/*
+tmp

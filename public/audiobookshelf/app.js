@@ -22,6 +22,22 @@ const elements = {
   searchQuery: document.querySelector('#search-query'),
   searchStatus: document.querySelector('#search-status'),
   searchResults: document.querySelector('#search-results'),
+  accountsTableBody: document.querySelector('#accounts-table tbody'),
+  accountCreateForm: document.querySelector('#account-create-form'),
+  accountCreateUsername: document.querySelector('#account-create-username'),
+  accountCreatePassword: document.querySelector('#account-create-password'),
+  accountCreateStatus: document.querySelector('#account-create-status'),
+  accountPasswordForm: document.querySelector('#account-password-form'),
+  accountPasswordUsername: document.querySelector('#account-password-username'),
+  accountPasswordNew: document.querySelector('#account-password-new'),
+  accountPasswordStatus: document.querySelector('#account-password-status'),
+  accountDeleteForm: document.querySelector('#account-delete-form'),
+  accountDeleteUsername: document.querySelector('#account-delete-username'),
+  accountDeleteStatus: document.querySelector('#account-delete-status'),
+  accountLoginForm: document.querySelector('#account-login-form'),
+  accountLoginUsername: document.querySelector('#account-login-username'),
+  accountLoginPassword: document.querySelector('#account-login-password'),
+  accountLoginStatus: document.querySelector('#account-login-status'),
   log: document.querySelector('#activity-log'),
 }
 
@@ -34,6 +50,8 @@ const state = {
   documents: [],
   libraries: [],
   selectedDocumentKey: null,
+  accounts: [],
+  selectedAccount: null,
 }
 
 function loadStoredAuth() {
@@ -74,6 +92,15 @@ function setStatus(el, message, tone = 'info') {
   if (!el) return
   el.textContent = message || ''
   el.dataset.tone = tone
+}
+
+const HASHED_KEY_REGEX = /^[a-f0-9]{32}$/i
+
+function normalizePasswordInput(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return HASHED_KEY_REGEX.test(trimmed) ? trimmed.toLowerCase() : md5(trimmed)
 }
 
 function md5(string) {
@@ -404,6 +431,61 @@ function renderDocuments() {
   })
 }
 
+function applyAccountSelection(username) {
+  if (!username) return
+  if (elements.accountPasswordUsername) {
+    elements.accountPasswordUsername.value = username
+  }
+  if (elements.accountDeleteUsername) {
+    elements.accountDeleteUsername.value = username
+  }
+  if (elements.accountLoginUsername) {
+    elements.accountLoginUsername.value = username
+  }
+}
+
+function renderAccounts() {
+  const tbody = elements.accountsTableBody
+  if (!tbody) return
+  tbody.innerHTML = ''
+  const accounts = Array.isArray(state.accounts) ? [...state.accounts] : []
+  accounts.sort((a, b) => a.username.localeCompare(b.username))
+  if (!accounts.length) {
+    state.selectedAccount = null
+    const row = document.createElement('tr')
+    const cell = document.createElement('td')
+    cell.colSpan = 2
+    cell.textContent = 'No accounts found.'
+    row.appendChild(cell)
+    tbody.appendChild(row)
+    return
+  }
+  if (!state.selectedAccount || !accounts.some((acct) => acct.username === state.selectedAccount)) {
+    state.selectedAccount = accounts[0].username
+  }
+  accounts.forEach((account) => {
+    const tr = document.createElement('tr')
+    tr.dataset.username = account.username
+    if (account.username === state.selectedAccount) {
+      tr.classList.add('selected')
+    }
+    const userCell = document.createElement('td')
+    userCell.textContent = account.username
+    const docsCell = document.createElement('td')
+    docsCell.textContent = account.documents ?? '0'
+    tr.appendChild(userCell)
+    tr.appendChild(docsCell)
+    tr.addEventListener('click', () => {
+      state.selectedAccount = account.username
+      applyAccountSelection(account.username)
+      renderAccounts()
+      log(`Selected account ${account.username}`)
+    })
+    tbody.appendChild(tr)
+  })
+  applyAccountSelection(state.selectedAccount)
+}
+
 function populateLibraries(libraries) {
   const select = elements.searchLibrary
   if (!select) return
@@ -598,10 +680,22 @@ async function loadLibraries() {
   }
 }
 
+async function loadAccounts() {
+  try {
+    const data = await api('/admin/accounts')
+    state.accounts = Array.isArray(data?.accounts) ? data.accounts : []
+    renderAccounts()
+  } catch (err) {
+    console.error(err)
+    log(`Failed to load accounts: ${err.message}`, 'error')
+  }
+}
+
 async function refreshAll() {
   await loadConfig()
   await refreshStatus()
   await loadLibraries()
+  await loadAccounts()
 }
 
 function bindEvents() {
@@ -614,7 +708,7 @@ function bindEvents() {
       return
     }
     state.auth.username = username
-    const looksHashed = /^[a-f0-9]{32}$/i.test(password)
+    const looksHashed = HASHED_KEY_REGEX.test(password)
     state.auth.hashedKey = looksHashed ? password.toLowerCase() : md5(password)
     persistAuth()
     setStatus(elements.authStatus, 'Connected', 'success')
@@ -701,6 +795,115 @@ function bindEvents() {
       console.error(err)
       setStatus(elements.searchStatus, err.message, 'error')
       log(`Search failed: ${err.message}`, 'error')
+    }
+  })
+
+  elements.accountCreateForm?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const username = elements.accountCreateUsername.value.trim()
+    const password = normalizePasswordInput(elements.accountCreatePassword.value)
+    if (!username || !password) {
+      setStatus(elements.accountCreateStatus, 'Provide username and password', 'warn')
+      return
+    }
+    try {
+      setStatus(elements.accountCreateStatus, 'Creating…')
+      const response = await api('/admin/accounts', { method: 'POST', body: { username, password } })
+      if (response?.error) {
+        throw new Error(response.error)
+      }
+      setStatus(elements.accountCreateStatus, 'Account created', 'success')
+      log(`Created KoShelf account ${username}`, 'success')
+      elements.accountCreatePassword.value = ''
+      state.selectedAccount = username
+      await loadAccounts()
+    } catch (err) {
+      console.error(err)
+      setStatus(elements.accountCreateStatus, err.message, 'error')
+      log(`Failed to create account: ${err.message}`, 'error')
+    }
+  })
+
+  elements.accountPasswordForm?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const username = elements.accountPasswordUsername.value.trim() || state.selectedAccount
+    const password = normalizePasswordInput(elements.accountPasswordNew.value)
+    if (!username || !password) {
+      setStatus(elements.accountPasswordStatus, 'Provide username and password', 'warn')
+      return
+    }
+    try {
+      setStatus(elements.accountPasswordStatus, 'Updating…')
+      const response = await api(`/admin/accounts/${encodeURIComponent(username)}/password`, {
+        method: 'PUT',
+        body: { password },
+      })
+      if (response?.error) {
+        throw new Error(response.error)
+      }
+      setStatus(elements.accountPasswordStatus, 'Password updated', 'success')
+      log(`Updated password for ${username}`, 'success')
+      elements.accountPasswordNew.value = ''
+    } catch (err) {
+      console.error(err)
+      setStatus(elements.accountPasswordStatus, err.message, 'error')
+      log(`Failed to update password: ${err.message}`, 'error')
+    }
+  })
+
+  elements.accountDeleteForm?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const username = elements.accountDeleteUsername.value.trim() || state.selectedAccount
+    if (!username) {
+      setStatus(elements.accountDeleteStatus, 'Select an account to delete', 'warn')
+      return
+    }
+    if (!window.confirm(`Delete KoShelf account "${username}" and all of its progress?`)) {
+      return
+    }
+    try {
+      setStatus(elements.accountDeleteStatus, 'Deleting…')
+      const response = await api(`/admin/accounts/${encodeURIComponent(username)}`, { method: 'DELETE' })
+      if (response?.error) {
+        throw new Error(response.error)
+      }
+      setStatus(elements.accountDeleteStatus, 'Account removed', 'success')
+      log(`Deleted KoShelf account ${username}`, 'warn')
+      if (state.selectedAccount === username) {
+        state.selectedAccount = null
+      }
+      await loadAccounts()
+    } catch (err) {
+      console.error(err)
+      setStatus(elements.accountDeleteStatus, err.message, 'error')
+      log(`Failed to delete account: ${err.message}`, 'error')
+    }
+  })
+
+  elements.accountLoginForm?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const username = elements.accountLoginUsername.value.trim()
+    const password = normalizePasswordInput(elements.accountLoginPassword.value)
+    if (!username || !password) {
+      setStatus(elements.accountLoginStatus, 'Provide username and password', 'warn')
+      return
+    }
+    try {
+      setStatus(elements.accountLoginStatus, 'Checking…')
+      const response = await api('/admin/accounts/login', { method: 'POST', body: { username, password } })
+      if (response?.authorized) {
+        setStatus(elements.accountLoginStatus, 'Credentials valid', 'success')
+        log(`Verified credentials for ${username}`, 'success')
+      } else if (response?.error) {
+        setStatus(elements.accountLoginStatus, response.error, 'error')
+        log(`Login failed for ${username}: ${response.error}`, 'error')
+      } else {
+        setStatus(elements.accountLoginStatus, 'Unauthorized', 'error')
+      }
+    } catch (err) {
+      console.error(err)
+      setStatus(elements.accountLoginStatus, err.message, 'error')
+      log(`Login test failed: ${err.message}`, 'error')
     }
   })
 }

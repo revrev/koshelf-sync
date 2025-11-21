@@ -34,6 +34,88 @@
         </form>
       </section>
 
+      <section class="card" id="accounts-card">
+        <div class="card__header">
+          <h2>KoShelf accounts</h2>
+          <p>Create and manage the KOReader accounts that can access this server.</p>
+        </div>
+        <div class="accounts-layout">
+          <div class="accounts-actions">
+            <form class="form form--compact" id="account-create-form">
+              <h3 class="form__title">Create account</h3>
+              <label>
+                Username
+                <input id="account-create-username" autocomplete="off" placeholder="reader" required />
+              </label>
+              <label>
+                Password (plain or MD5)
+                <input id="account-create-password" type="password" autocomplete="new-password" required />
+              </label>
+              <div class="form__actions">
+                <button type="submit">Create</button>
+                <span class="form__status" id="account-create-status"></span>
+              </div>
+            </form>
+
+            <form class="form form--compact" id="account-password-form">
+              <h3 class="form__title">Change password</h3>
+              <label>
+                Username
+                <input id="account-password-username" autocomplete="off" placeholder="reader" required />
+              </label>
+              <label>
+                New password (plain or MD5)
+                <input id="account-password-new" type="password" autocomplete="new-password" required />
+              </label>
+              <div class="form__actions">
+                <button type="submit">Update</button>
+                <span class="form__status" id="account-password-status"></span>
+              </div>
+            </form>
+
+            <form class="form form--compact" id="account-login-form">
+              <h3 class="form__title">Login test</h3>
+              <label>
+                Username
+                <input id="account-login-username" autocomplete="off" placeholder="reader" required />
+              </label>
+              <label>
+                Password (plain or MD5)
+                <input id="account-login-password" type="password" autocomplete="current-password" required />
+              </label>
+              <div class="form__actions">
+                <button type="submit">Test credentials</button>
+                <span class="form__status" id="account-login-status"></span>
+              </div>
+            </form>
+
+            <form class="form form--compact" id="account-delete-form">
+              <h3 class="form__title">Delete account</h3>
+              <label>
+                Username
+                <input id="account-delete-username" autocomplete="off" placeholder="reader" required />
+              </label>
+              <p class="form__help">Documents for this account will also be removed.</p>
+              <div class="form__actions">
+                <button type="submit" class="button--danger">Delete</button>
+                <span class="form__status" id="account-delete-status"></span>
+              </div>
+            </form>
+          </div>
+          <div class="table-wrapper">
+            <table id="accounts-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Documents</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section class="card" id="config-card">
         <div class="card__header">
           <h2>Audiobookshelf configuration</h2>

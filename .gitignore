@@ -25,3 +25,9 @@ tmtags
 
 # Redis
 *.rdb
+
+# Frontend build artifacts
+frontend/node_modules
+frontend/dist
+frontend/.vite
+.npm-cache

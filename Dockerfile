@@ -1,3 +1,15 @@
+FROM node:20-bookworm AS frontend-builder
+ARG VITE_BASE_PATH=/react/
+ENV VITE_BASE_PATH=${VITE_BASE_PATH}
+WORKDIR /frontend
+
+COPY frontend/package*.json ./
+COPY frontend/tsconfig*.json ./ 
+COPY frontend/vite.config.ts frontend/tailwind.config.js frontend/postcss.config.js frontend/eslint.config.js ./ 
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
+
 FROM ubuntu:jammy
 
 ENV DEBIAN_FRONTEND="noninteractive" \
@@ -52,6 +64,8 @@ RUN luarocks install --verbose luasocket \
 
 # add app source code
 COPY ./ koshelf-sync
+RUN mkdir -p koshelf-sync/public/react
+COPY --from=frontend-builder /frontend/dist koshelf-sync/public/react
 
 # patch gin for https support
 RUN git clone https://github.com/ostinelli/gin \
