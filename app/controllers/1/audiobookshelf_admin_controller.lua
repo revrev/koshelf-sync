@@ -316,7 +316,8 @@ end
 
 function AudiobookshelfAdminController:search_library()
     local username = ensure_authorized(self)
-    local library_id = self.params.library_id
+    local args = ngx.req.get_uri_args() or {}
+    local library_id = self.params.library_id or args.library_id
     if not is_valid_key_field(library_id) then
         self:raise_error(self.error_invalid_fields)
     end
@@ -340,7 +341,11 @@ function AudiobookshelfAdminController:search_library()
         limit = limit,
         results = table_size(results.items or results),
     })
-    return 200, { results = results }
+    -- Audiobookshelf returns {book: [...], tags: {...}, ...}
+    -- but our frontend expects {results: [...]}
+    -- so we normalize it here
+    local items = results.book or results.results or results
+    return 200, { results = items }
 end
 
 function AudiobookshelfAdminController:get_library_item()
@@ -356,6 +361,61 @@ function AudiobookshelfAdminController:get_library_item()
     end
     Logger.gui("library.item", { username = username, library_item_id = library_item_id })
     return 200, { item = item }
+end
+
+function AudiobookshelfAdminController:get_item_cover()
+    local username = ensure_authorized(self)
+    local args = ngx.req.get_uri_args() or {}
+    local library_item_id = args.library_item_id or args.item_id
+    if not is_valid_key_field(library_item_id) then
+        self:raise_error(self.error_invalid_fields)
+    end
+    
+    local width = args.width
+    local height = args.height
+    local format = args.format
+    
+    local body, err, content_type = Audiobookshelf.fetch_item_cover(username, library_item_id, width, height, format)
+    if not body then
+        Logger.gui("library.cover_failed", {
+            username = username,
+            library_item_id = library_item_id,
+            error = err
+        }, "ERROR")
+        return 404, { error = err or "Cover not found" }
+    end
+
+    local encode_base64 = ngx and ngx.encode_base64
+    if not encode_base64 then
+        local ok, mime = pcall(require, "mime")
+        if ok and mime and mime.b64 then
+            encode_base64 = mime.b64
+        end
+    end
+
+    if not encode_base64 then
+        Logger.gui("library.cover_failed", {
+            username = username,
+            library_item_id = library_item_id,
+            error = "Base64 encoder unavailable"
+        }, "ERROR")
+        return 502, { error = "Unable to encode cover image" }
+    end
+
+    local encoded_cover = encode_base64(body)
+
+    Logger.gui("library.cover", {
+        username = username,
+        library_item_id = library_item_id,
+        content_type = content_type
+    })
+
+    return 200, {
+        cover = encoded_cover,
+        content_type = content_type,
+    }, {
+        ["Cache-Control"] = "public, max-age=86400",
+    }
 end
 
 return AudiobookshelfAdminController

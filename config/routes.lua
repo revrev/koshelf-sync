@@ -18,7 +18,15 @@ v1:GET("/admin/audiobookshelf/config", { controller = "audiobookshelf_admin", ac
 v1:PUT("/admin/audiobookshelf/config", { controller = "audiobookshelf_admin", action = "update_config" })
 v1:GET("/admin/audiobookshelf/status", { controller = "audiobookshelf_admin", action = "get_status" })
 v1:GET("/admin/audiobookshelf/libraries", { controller = "audiobookshelf_admin", action = "list_libraries" })
-v1:GET("/admin/audiobookshelf/libraries/:library_id/search", { controller = "audiobookshelf_admin", action = "search_library" })
+v1:GET("/admin/audiobookshelf/search", { controller = "audiobookshelf_admin", action = "search_library" })
 v1:GET("/admin/audiobookshelf/library-items/:library_item_id", { controller = "audiobookshelf_admin", action = "get_library_item" })
+v1:GET("/admin/audiobookshelf/cover", { controller = "audiobookshelf_admin", action = "get_item_cover" })
+v1:GET("/admin/library", { controller = "library_admin", action = "list" })
+v1:GET("/admin/library/:document", { controller = "library_admin", action = "get_item" })
+v1:POST("/admin/library/:document/link", { controller = "library_admin", action = "link_item" })
+v1:POST("/admin/library/:document/sync/to-audio", { controller = "sync_positions", action = "sync_to_audio" })
+v1:POST("/admin/library/:document/sync/from-audio", { controller = "sync_positions", action = "sync_from_audio" })
+v1:POST("/admin/library/:document/sync/auto", { controller = "sync_positions", action = "auto_sync" })
+
 
 return routes

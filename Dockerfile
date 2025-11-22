@@ -1,15 +1,14 @@
-FROM node:20-bookworm AS frontend-builder
-ARG VITE_BASE_PATH=/react/
+# build frontend
+FROM node:20-alpine AS frontend-builder
+ARG VITE_BASE_PATH=/
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
-WORKDIR /frontend
-
-COPY frontend/package*.json ./
-COPY frontend/tsconfig*.json ./ 
-COPY frontend/vite.config.ts frontend/tailwind.config.js frontend/postcss.config.js frontend/eslint.config.js ./ 
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ .
 RUN npm run build
 
+# final image
 FROM ubuntu:jammy
 
 ENV DEBIAN_FRONTEND="noninteractive" \
@@ -19,20 +18,20 @@ ENV DEBIAN_FRONTEND="noninteractive" \
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
-        build-essential \
-        ca-certificates \
-        git \
-        libncurses5-dev \
-        libpcre3-dev \
-        libreadline-dev \
-        libssl-dev \
-        locales \
-        luarocks \
-        openssl \
-        redis-server \
-        unzip \
-        wget \
-        zlib1g-dev \
+    build-essential \
+    ca-certificates \
+    git \
+    libncurses5-dev \
+    libpcre3-dev \
+    libreadline-dev \
+    libssl-dev \
+    locales \
+    luarocks \
+    openssl \
+    redis-server \
+    unzip \
+    wget \
+    zlib1g-dev \
     && locale-gen en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -52,20 +51,22 @@ RUN set -eux; \
 
 RUN mkdir -p /etc/nginx/ssl \
     && openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout /etc/nginx/ssl/nginx.key \
-        -out /etc/nginx/ssl/nginx.crt \
-        -subj "/"
+    -keyout /etc/nginx/ssl/nginx.key \
+    -out /etc/nginx/ssl/nginx.crt \
+    -subj "/"
 
 RUN luarocks install --verbose luasocket \
     && luarocks install luasec \
     && luarocks install redis-lua \
+    && luarocks install lua-resty-http \
     && luarocks install busted \
     && rm -rf /tmp/*
 
 # add app source code
 COPY ./ koshelf-sync
-RUN mkdir -p koshelf-sync/public/react
-COPY --from=frontend-builder /frontend/dist koshelf-sync/public/react
+# copy frontend build artifacts
+RUN mkdir -p koshelf-sync/public
+COPY --from=frontend-builder /app/frontend/dist /app/koshelf-sync/public
 
 # patch gin for https support
 RUN git clone https://github.com/ostinelli/gin \
@@ -84,5 +85,5 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 VOLUME ["/var/log/redis", "/var/lib/redis"]
 
-EXPOSE 7200
+EXPOSE 17200 7200
 CMD ["/usr/local/bin/entrypoint.sh"]

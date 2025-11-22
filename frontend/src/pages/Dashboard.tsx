@@ -6,6 +6,7 @@ import { AuthGate } from '../components/AuthGate'
 import { AccountTable } from '../components/AccountTable'
 import { BootstrapCard } from '../components/BootstrapCard'
 import { CreateAccountCard } from '../components/CreateAccountCard'
+import { AudiobookshelfSearch } from '../components/AudiobookshelfSearch'
 import type { ApiError } from '../api/client'
 
 interface DashboardProps {
@@ -127,7 +128,10 @@ export function Dashboard({ auth, saveAuth, clearAuth }: DashboardProps) {
             />
           )}
         </section>
+
+        {!bootstrapMode && !unauthorized && <AudiobookshelfSearch auth={auth} />}
       </div>
     </div>
   )
 }
+

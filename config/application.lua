@@ -1,5 +1,5 @@
 local Application = {
-    name = "koshelf",
+    name = "koreader",
     version = '1.0.1'
 }
 

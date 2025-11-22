@@ -21,7 +21,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const url = `${defaultBaseUrl}${path}`
   const requestHeaders = new Headers(headers)
-  requestHeaders.set('Accept', 'application/vnd.koshelf.v1+json')
+  requestHeaders.set('Accept', 'application/vnd.koreader.v1+json')
   requestHeaders.set('Content-Type', 'application/json')
   if (auth?.username && auth?.key) {
     requestHeaders.set('X-Auth-User', auth.username)

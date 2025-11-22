@@ -77,6 +77,18 @@ function Audiobookshelf.invalidate_cache()
     Audiobookshelf._cache_expires_at = 0
 end
 
+local function get_timeout(config)
+    local source = config
+    if not source then
+        source = get_config()
+    end
+    local timeout = source and tonumber(source.http_timeout)
+    if timeout and timeout > 0 then
+        return timeout
+    end
+    return Audiobookshelf.default_timeout
+end
+
 local function request(method, path, body, credentials)
     if not (ok_http and http) then
         return nil, "resty.http is not available"
@@ -90,10 +102,11 @@ local function request(method, path, body, credentials)
         return nil, "Invalid path"
     end
     local httpc = http.new()
-    httpc:set_timeout(config.http_timeout or Audiobookshelf.default_timeout)
+    httpc:set_timeout(get_timeout(config))
     local request_opts = {
         method = method,
         headers = build_headers(credentials),
+        ssl_verify = false,
     }
     if body then
         local encoded, err = cjson.encode(body)
@@ -266,6 +279,81 @@ function Audiobookshelf.push_progress(params)
     return true
 end
 
+function Audiobookshelf.update_progress(params)
+    if not Audiobookshelf.is_enabled() then
+        return nil, "Audiobookshelf is not enabled"
+    end
+    if type(params) ~= "table" then
+        return nil, "Invalid parameters"
+    end
+    
+    local credentials = credentials_for(params.username)
+    if not credentials or not credentials.api_key then
+        return nil, "Missing Audiobookshelf credentials"
+    end
+    
+    local library_item_id = params.library_item_id
+    if not library_item_id then
+        library_item_id = map_document_id(params.document)
+    end
+    if not library_item_id then
+        return nil, "Unable to resolve Audiobookshelf library item id"
+    end
+    
+    local current_time = params.current_time
+    local duration = params.duration
+    
+    if not current_time or not duration then
+        return nil, "current_time and duration are required"
+    end
+    
+    -- Fetch existing progress to preserve other fields
+    local media_progress, progress_err = fetch_media_progress(library_item_id, credentials)
+    if not media_progress then
+        -- If no existing progress, create minimal payload
+        media_progress = { extraData = {} }
+    end
+    
+    -- Calculate progress percentage
+    local progress_percentage = tonumber(current_time) / tonumber(duration)
+    
+    -- Build payload preserving existing data
+    local payload = {
+        currentTime = tonumber(current_time),
+        duration = tonumber(duration),
+        progress = progress_percentage,
+    }
+    
+    -- Preserve isFinished flag if it exists, or set based on progress
+    if media_progress.isFinished ~= nil then
+        payload.isFinished = media_progress.isFinished
+    elseif progress_percentage >= 0.99 then
+        payload.isFinished = true
+    end
+    
+    -- Build extra data preserving existing extraData
+    local ProgressMapper = require "lib.progress_mapper"
+    local extra_payload = ProgressMapper.build_extra_payload(
+        media_progress.extraData,
+        {
+            username = params.username,
+            documentId = params.document,
+            percentage = progress_percentage,
+            timestamp = ngx and ngx.time() or os.time(),
+            mappedAudioTime = tonumber(current_time),
+            lastSyncSource = "manual_sync_to_audio",
+        }
+    )
+    payload.extraData = extra_payload
+    
+    local response, err = patch_media_progress(library_item_id, payload, credentials)
+    if not response then
+        return nil, err
+    end
+    
+    return true
+end
+
 function Audiobookshelf.pull_progress(params)
     if not Audiobookshelf.is_enabled() then
         return nil
@@ -433,6 +521,62 @@ end
 function Audiobookshelf.extract_item_summary(payload)
     local item = payload and payload.item
     return summarize_item(item)
+end
+
+function Audiobookshelf.fetch_item_cover(username, library_item_id, width, height, format)
+    if not library_item_id or library_item_id == "" then
+        return nil, "Library item id is required"
+    end
+    local credentials = credentials_for(username)
+    if not credentials or not credentials.api_key then
+        return nil, "Missing Audiobookshelf credentials"
+    end
+    
+    -- Build query parameters
+    local params = {}
+    if width and tonumber(width) then
+        table.insert(params, string.format("width=%d", tonumber(width)))
+    end
+    if height and tonumber(height) then
+        table.insert(params, string.format("height=%d", tonumber(height)))
+    end
+    if format and format ~= "" then
+        table.insert(params, string.format("format=%s", escape_uri(format)))
+    end
+    
+    local path = string.format("/api/items/%s/cover", escape_uri(library_item_id))
+    if #params > 0 then
+        path = path .. "?" .. table.concat(params, "&")
+    end
+    
+    -- For image requests, we need to return the raw body, not parse as JSON
+    local config = get_config()
+    local http = require("resty.http")
+    local httpc = http.new()
+    httpc:set_timeout(get_timeout(config))
+    local base_url = sanitize_base_url(config.base_url)
+    if not base_url then
+        return nil, "Audiobookshelf base URL not configured"
+    end
+    
+    local url = base_url .. path
+    local res, err = httpc:request_uri(url, {
+        method = "GET",
+        headers = build_headers(credentials),
+        ssl_verify = false,
+    })
+    
+    if not res then
+        return nil, string.format("Request failed: %s", err or "unknown error")
+    end
+    
+    if res.status ~= 200 then
+        return nil, string.format("Request failed with status %d", res.status)
+    end
+    
+    -- Return the raw body and content type
+    local content_type = res.headers["Content-Type"] or res.headers["content-type"] or "image/webp"
+    return res.body, nil, content_type
 end
 
 return Audiobookshelf

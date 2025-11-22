@@ -6,7 +6,8 @@ services:
       dockerfile: Dockerfile
     image: koshelf/koshelf-sync:latest
     ports:
-      - "7200:7200"
+      - 7200:7200
+      - 17200:17200
     restart: unless-stopped
     volumes:
       - ./logs/app:/app/koshelf-sync/logs
